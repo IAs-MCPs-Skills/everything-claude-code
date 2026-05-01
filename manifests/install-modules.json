@@ -12,6 +12,7 @@
         "claude",
         "cursor",
         "antigravity",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [],
@@ -33,6 +34,7 @@
         "cursor",
         "antigravity",
         "codex",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [],
@@ -52,6 +54,7 @@
         "cursor",
         "antigravity",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [],
@@ -72,6 +75,7 @@
         "claude",
         "cursor",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [],
@@ -157,6 +161,7 @@
         "antigravity",
         "codex",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [
@@ -185,6 +190,7 @@
         "antigravity",
         "codex",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [
@@ -223,6 +229,7 @@
         "antigravity",
         "codex",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [
@@ -258,6 +265,7 @@
         "antigravity",
         "codex",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [
@@ -282,6 +290,7 @@
         "antigravity",
         "codex",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [
@@ -313,6 +322,7 @@
         "antigravity",
         "codex",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [
@@ -351,6 +361,7 @@
         "antigravity",
         "codex",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [
@@ -374,6 +385,7 @@
         "antigravity",
         "codex",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [
@@ -400,6 +412,7 @@
         "cursor",
         "codex",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [
@@ -426,7 +439,8 @@
       "targets": [
         "claude",
         "codex",
-        "opencode"
+        "opencode",
+        "gemini"
       ],
       "dependencies": [
         "commands-core",
@@ -454,6 +468,7 @@
         "antigravity",
         "codex",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [
@@ -493,6 +508,7 @@
         "antigravity",
         "codex",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [
@@ -516,6 +532,7 @@
         "antigravity",
         "codex",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [
@@ -545,6 +562,7 @@
         "antigravity",
         "codex",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [
@@ -568,6 +586,7 @@
         "antigravity",
         "codex",
         "opencode",
+        "gemini",
         "codebuddy"
       ],
       "dependencies": [
@@ -577,5 +596,6 @@
       "cost": "medium",
       "stability": "stable"
     }
+
   ]
 }
