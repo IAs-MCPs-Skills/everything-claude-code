@@ -1,4 +1,12 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(node scripts/install-apply.js --help)",
+      "Bash(node scripts/install-apply.js --profile full --dry-run)",
+      "Bash(npm install *)",
+      "Bash(node *)"
+    ]
+  },
   "enabledMcpjsonServers": [
     "github",
     "context7",
