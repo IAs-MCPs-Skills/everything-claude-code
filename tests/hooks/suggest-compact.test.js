@@ -366,6 +366,66 @@ function runTests() {
   })) passed++;
   else failed++;
 
+  // ── hookSpecificOutput JSON on stdout ──
+  // Claude Code 2.1+ drops non-blocking PreToolUse stderr; the suggestion has
+  // to ride on stdout as { hookSpecificOutput: { additionalContext } } to reach
+  // the model. These tests pin that contract.
+  console.log('\nhookSpecificOutput stdout JSON:');
+
+  if (test('emits hookSpecificOutput.additionalContext on stdout at threshold', () => {
+    const { sessionId, counterFile, cleanup } = createCounterContext();
+    cleanup();
+    fs.writeFileSync(counterFile, '49');
+    const result = runCompact({ CLAUDE_SESSION_ID: sessionId });
+    assert.strictEqual(result.code, 0, 'Should exit 0');
+    assert.ok(result.stdout.trim().length > 0, `Expected stdout payload at threshold. Got: "${result.stdout}"`);
+    const parsed = JSON.parse(result.stdout);
+    assert.strictEqual(parsed.hookSpecificOutput.hookEventName, 'PreToolUse',
+      `hookEventName should be PreToolUse. Got: ${JSON.stringify(parsed)}`);
+    assert.ok(parsed.hookSpecificOutput.additionalContext.includes('50 tool calls reached'),
+      `additionalContext should include threshold text. Got: ${parsed.hookSpecificOutput.additionalContext}`);
+    cleanup();
+  })) passed++;
+  else failed++;
+
+  if (test('emits hookSpecificOutput.additionalContext on stdout at +25 interval', () => {
+    const { sessionId, counterFile, cleanup } = createCounterContext();
+    cleanup();
+    // threshold=3, set counter to 27 → next run = 28 → 28-3=25 → interval hit
+    fs.writeFileSync(counterFile, '27');
+    const result = runCompact({ CLAUDE_SESSION_ID: sessionId, COMPACT_THRESHOLD: '3' });
+    assert.strictEqual(result.code, 0, 'Should exit 0');
+    assert.ok(result.stdout.trim().length > 0, `Expected stdout payload at interval. Got: "${result.stdout}"`);
+    const parsed = JSON.parse(result.stdout);
+    assert.strictEqual(parsed.hookSpecificOutput.hookEventName, 'PreToolUse');
+    assert.ok(parsed.hookSpecificOutput.additionalContext.includes('28 tool calls'),
+      `additionalContext should include count. Got: ${parsed.hookSpecificOutput.additionalContext}`);
+    cleanup();
+  })) passed++;
+  else failed++;
+
+  if (test('emits no stdout below threshold (silent)', () => {
+    const { sessionId, cleanup } = createCounterContext();
+    cleanup();
+    const result = runCompact({ CLAUDE_SESSION_ID: sessionId, COMPACT_THRESHOLD: '5' });
+    assert.strictEqual(result.code, 0);
+    assert.strictEqual(result.stdout.trim(), '',
+      `Expected empty stdout below threshold. Got: "${result.stdout}"`);
+    cleanup();
+  })) passed++;
+  else failed++;
+
+  if (test('still writes [StrategicCompact] to stderr (debug log retained)', () => {
+    const { sessionId, counterFile, cleanup } = createCounterContext();
+    cleanup();
+    fs.writeFileSync(counterFile, '49');
+    const result = runCompact({ CLAUDE_SESSION_ID: sessionId });
+    assert.ok(result.stderr.includes('[StrategicCompact]'),
+      `stderr should retain [StrategicCompact] for debug log capture. Got: "${result.stderr}"`);
+    cleanup();
+  })) passed++;
+  else failed++;
+
   // ── Round 64: default session ID fallback ──
   console.log('\nDefault session ID fallback (Round 64):');
 
@@ -387,6 +447,192 @@ function runTests() {
       assert.strictEqual(count, 1, 'Counter should be 1 for first run with default session');
     } finally {
       try { fs.unlinkSync(defaultCounterFile); } catch (_err) { /* ignore */ }
+    }
+  })) passed++;
+  else failed++;
+
+  // ── Counter file cleanup (#2156) ──
+  // claude-tool-count-<sessionId> files were never removed. The hook now
+  // sweeps stale counters older than COMPACT_STATE_TTL_DAYS (default 14)
+  // before opening the active counter. These tests pin the contract.
+  console.log('\nCounter file cleanup (#2156):');
+
+  /**
+   * Set a file's mtime/atime to N days ago.
+   */
+  function setMtimeDaysAgo(filePath, daysAgo) {
+    const seconds = Math.floor(Date.now() / 1000) - daysAgo * 24 * 60 * 60;
+    fs.utimesSync(filePath, seconds, seconds);
+  }
+
+  if (test('removes counter files older than retention window', () => {
+    const { sessionId, cleanup } = createCounterContext();
+    const stale = getCounterFilePath(`stale-${Date.now()}`);
+    fs.writeFileSync(stale, '1');
+    setMtimeDaysAgo(stale, 30);
+    try {
+      const result = runCompact({ CLAUDE_SESSION_ID: sessionId });
+      assert.strictEqual(result.code, 0, 'Should exit 0');
+      assert.ok(!fs.existsSync(stale),
+        `Stale counter file should have been swept. Path: ${stale}`);
+    } finally {
+      try { fs.unlinkSync(stale); } catch (_err) { /* ignore */ }
+      cleanup();
+    }
+  })) passed++;
+  else failed++;
+
+  if (test('preserves counter files within retention window', () => {
+    const { sessionId, cleanup } = createCounterContext();
+    const fresh = getCounterFilePath(`fresh-${Date.now()}`);
+    fs.writeFileSync(fresh, '1');
+    setMtimeDaysAgo(fresh, 5);
+    try {
+      runCompact({ CLAUDE_SESSION_ID: sessionId });
+      assert.ok(fs.existsSync(fresh),
+        `Fresh counter file should be preserved. Path: ${fresh}`);
+    } finally {
+      try { fs.unlinkSync(fresh); } catch (_err) { /* ignore */ }
+      cleanup();
+    }
+  })) passed++;
+  else failed++;
+
+  if (test('preserves the active session\'s counter file even if old', () => {
+    const { sessionId, counterFile, cleanup } = createCounterContext();
+    cleanup();
+    fs.writeFileSync(counterFile, '7');
+    setMtimeDaysAgo(counterFile, 30);
+    try {
+      const result = runCompact({ CLAUDE_SESSION_ID: sessionId });
+      assert.strictEqual(result.code, 0, 'Should exit 0');
+      // Active counter survives the sweep AND is incremented by the hook (7 -> 8).
+      assert.ok(fs.existsSync(counterFile),
+        'Active session counter must survive the sweep');
+      const count = parseInt(fs.readFileSync(counterFile, 'utf8').trim(), 10);
+      assert.strictEqual(count, 8,
+        `Active counter should be incremented by the hook. Got ${count}`);
+    } finally {
+      cleanup();
+    }
+  })) passed++;
+  else failed++;
+
+  if (test('honours COMPACT_STATE_TTL_DAYS env var', () => {
+    const { sessionId, cleanup } = createCounterContext();
+    const target = getCounterFilePath(`ttl-${Date.now()}`);
+    fs.writeFileSync(target, '1');
+    setMtimeDaysAgo(target, 5); // Within default 14d window, but outside TTL=3
+    try {
+      const result = runCompact({
+        CLAUDE_SESSION_ID: sessionId,
+        COMPACT_STATE_TTL_DAYS: '3'
+      });
+      assert.strictEqual(result.code, 0);
+      assert.ok(!fs.existsSync(target),
+        `TTL=3 should sweep a 5-day-old file. Path: ${target}`);
+    } finally {
+      try { fs.unlinkSync(target); } catch (_err) { /* ignore */ }
+      cleanup();
+    }
+  })) passed++;
+  else failed++;
+
+  if (test('falls back to default for invalid COMPACT_STATE_TTL_DAYS', () => {
+    const { sessionId, cleanup } = createCounterContext();
+    const target = getCounterFilePath(`fallback-${Date.now()}`);
+    fs.writeFileSync(target, '1');
+    setMtimeDaysAgo(target, 5); // Within default 14d window, would survive a fallback
+    try {
+      // Each invalid form: zero, negative, non-numeric — should fall back to 14d default.
+      for (const bad of ['0', '-5', 'abc']) {
+        // Reset mtime each iteration so the file remains 5 days old.
+        setMtimeDaysAgo(target, 5);
+        const result = runCompact({
+          CLAUDE_SESSION_ID: sessionId,
+          COMPACT_STATE_TTL_DAYS: bad
+        });
+        assert.strictEqual(result.code, 0);
+        assert.ok(fs.existsSync(target),
+          `Invalid TTL '${bad}' should fall back to default (14d) and preserve a 5-day-old file`);
+      }
+    } finally {
+      try { fs.unlinkSync(target); } catch (_err) { /* ignore */ }
+      cleanup();
+    }
+  })) passed++;
+  else failed++;
+
+  if (test('does not touch unrelated temp files', () => {
+    const { sessionId, cleanup } = createCounterContext();
+    const unrelated = path.join(os.tmpdir(), `unrelated-${Date.now()}.tmp`);
+    fs.writeFileSync(unrelated, 'do not touch');
+    setMtimeDaysAgo(unrelated, 60);
+    try {
+      runCompact({ CLAUDE_SESSION_ID: sessionId });
+      assert.ok(fs.existsSync(unrelated),
+        `Unrelated temp file should not be swept. Path: ${unrelated}`);
+    } finally {
+      try { fs.unlinkSync(unrelated); } catch (_err) { /* ignore */ }
+      cleanup();
+    }
+  })) passed++;
+  else failed++;
+
+  if (test('preserves files whose mtime sits at or after the TTL cutoff', () => {
+    // Contract: docstring says files "older than" retentionDays are removed.
+    // A file at the exact boundary (age == retentionDays) is NOT older than
+    // retentionDays, so it must survive the sweep. Pins the >= comparison
+    // in cleanupOldCounters: anything with mtimeMs >= cutoffMs is skipped.
+    //
+    // We can't pin the boundary by clock — the sweep computes its own
+    // Date.now() after this test runs, so `setMtimeDaysAgo(file, 14)` is
+    // effectively "14d + handful of ms", placing the file just past the
+    // cutoff. To exercise the boundary deterministically, set the file's
+    // mtime two seconds *newer* than the projected cutoff: with `>` the
+    // file would be deleted (mtimeMs > cutoffMs is false at the cutoff
+    // edge); with `>=` it survives.
+    const { sessionId, cleanup } = createCounterContext();
+    const boundary = getCounterFilePath(`boundary-${Date.now()}`);
+    fs.writeFileSync(boundary, '1');
+    const retentionDays = 14;
+    const boundaryMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000 + 2000;
+    const sec = Math.floor(boundaryMs / 1000);
+    fs.utimesSync(boundary, sec, sec);
+    try {
+      const result = runCompact({ CLAUDE_SESSION_ID: sessionId });
+      assert.strictEqual(result.code, 0);
+      assert.ok(fs.existsSync(boundary),
+        `Boundary-aged counter file should be preserved. Path: ${boundary}`);
+    } finally {
+      try { fs.unlinkSync(boundary); } catch (_err) { /* ignore */ }
+      cleanup();
+    }
+  })) passed++;
+  else failed++;
+
+  if (test('exit 0 holds when sweep encounters a populated temp dir', () => {
+    // Functional smoke: with a mix of stale, fresh, and unrelated files
+    // present, the hook must still exit 0 — the always-exit-0 contract
+    // takes precedence over sweep failures.
+    const { sessionId, cleanup } = createCounterContext();
+    const stale = getCounterFilePath(`mix-stale-${Date.now()}`);
+    const fresh = getCounterFilePath(`mix-fresh-${Date.now()}`);
+    const unrelated = path.join(os.tmpdir(), `mix-unrelated-${Date.now()}.tmp`);
+    fs.writeFileSync(stale, '1');
+    fs.writeFileSync(fresh, '1');
+    fs.writeFileSync(unrelated, '1');
+    setMtimeDaysAgo(stale, 30);
+    setMtimeDaysAgo(fresh, 1);
+    setMtimeDaysAgo(unrelated, 30);
+    try {
+      const result = runCompact({ CLAUDE_SESSION_ID: sessionId });
+      assert.strictEqual(result.code, 0, 'Hook must exit 0 even with files in temp dir');
+    } finally {
+      for (const p of [stale, fresh, unrelated]) {
+        try { fs.unlinkSync(p); } catch (_err) { /* ignore */ }
+      }
+      cleanup();
     }
   })) passed++;
   else failed++;
